@@ -1,0 +1,5 @@
+# Built packages: attach the zip to a GitHub Release instead of committing it
+dist/
+
+# Backups written by "Restore defaults"
+*.bak
