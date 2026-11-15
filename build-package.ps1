@@ -12,13 +12,16 @@ if (Test-Path $zip) { Remove-Item $zip -Force }
 New-Item -ItemType Directory -Force (Join-Path $stage 'app\prompt'), (Join-Path $stage 'app\profiles') | Out-Null
 
 foreach ($f in 'Setup.cmd', 'Uninstall.cmd', 'setup.ps1', 'README.md', 'README.vi.md') { Copy-Item (Join-Path $root $f) $stage }
-foreach ($f in 'Polish.cs', 'Profiles.cs', 'SettingsForm.cs', 'polish.ps1', 'uninstall.ps1', 'polish.ico') { Copy-Item (Join-Path $root $f) (Join-Path $stage 'app') }
+foreach ($f in 'Polish.cs', 'Profiles.cs', 'Providers.cs', 'SettingsForm.cs', 'polish.ps1', 'uninstall.ps1', 'polish.ico') { Copy-Item (Join-Path $root $f) (Join-Path $stage 'app') }
 Copy-Item (Join-Path $root 'prompt\rules.md') (Join-Path $stage 'app\prompt')
 Copy-Item (Join-Path $root 'profiles\*.md') (Join-Path $stage 'app\profiles')
 
 # Ship config.json with an empty claudePath: each computer finds its own CLI.
 $cfg = Get-Content (Join-Path $root 'config.json') -Raw
 $cfg = [regex]::Replace($cfg, '"claudePath"\s*:\s*"(?:[^"\\]|\\.)*"', '"claudePath": ""')
+# Never ship API keys (they are DPAPI-encrypted and useless elsewhere, but leave nothing to chance).
+$cfg = [regex]::Replace($cfg, '"apiKeys"\s*:\s*\{[^}]*\}', '"apiKeys": {}')
+if ($cfg -notmatch '"apiKeys": \{\}') { throw 'config.json: could not clear apiKeys' }
 [IO.File]::WriteAllText((Join-Path $stage 'app\config.json'), $cfg, (New-Object Text.UTF8Encoding($false)))
 
 # Scripts must stay ASCII: Windows PowerShell 5.1 reads BOM-less files as ANSI.

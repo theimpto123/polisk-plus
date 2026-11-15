@@ -257,6 +257,14 @@ namespace PolishTool
         // Output languages offered in the popup. The first one is the default for every hotkey press.
         public List<string> Languages = new List<string>(new string[] { "English", "Vietnamese" });
         public const int MaxLanguages = 8;
+        // Which AI does the writing: "claude" (Claude Code CLI, default), "openai", "gemini" or "custom". "Model" above is Claude's.
+        public string Provider = Providers.Claude;
+        public string OpenAIModel = Providers.Get(Providers.OpenAI).DefaultModel;
+        public string GeminiModel = Providers.Get(Providers.Gemini).DefaultModel;
+        public string CustomModel = "";
+        public string CustomBaseUrl = "";
+        // provider id -> API key encrypted with Windows DPAPI (see Secrets). Never the plain key.
+        public Dictionary<string, string> ApiKeys = new Dictionary<string, string>();
 
         public string DefaultLanguage { get { return Languages.Count > 0 ? Languages[0] : "English"; } }
 
@@ -265,7 +273,51 @@ namespace PolishTool
             Config c = (Config)MemberwiseClone();
             c.ExtraArgs = new List<string>(ExtraArgs);
             c.Languages = new List<string>(Languages);
+            c.ApiKeys = new Dictionary<string, string>(ApiKeys);
             return c;
+        }
+
+        public string GetModel(string provider)
+        {
+            if (provider == Providers.OpenAI) return OpenAIModel;
+            if (provider == Providers.Gemini) return GeminiModel;
+            if (provider == Providers.Custom) return CustomModel;
+            return Model;
+        }
+
+        public void SetModel(string provider, string model)
+        {
+            if (provider == Providers.OpenAI) OpenAIModel = model;
+            else if (provider == Providers.Gemini) GeminiModel = model;
+            else if (provider == Providers.Custom) CustomModel = model;
+            else Model = model;
+        }
+
+        public string ActiveModel { get { return GetModel(Providers.Get(Provider).Id); } }
+
+        public bool HasSavedKey(string provider) { return ApiKeys.ContainsKey(provider) && Secrets.Unprotect(ApiKeys[provider]).Length > 0; }
+
+        // The saved key, or the provider's usual environment variable (OPENAI_API_KEY, GEMINI_API_KEY) when none is saved.
+        public string GetKey(string provider)
+        {
+            string stored;
+            if (ApiKeys.TryGetValue(provider, out stored))
+            {
+                string k = Secrets.Unprotect(stored);
+                if (k.Length > 0) return k;
+            }
+            foreach (string name in Providers.Get(provider).KeyEnv)
+            {
+                string v = (Environment.GetEnvironmentVariable(name) ?? "").Trim();
+                if (v.Length > 0) return v;
+            }
+            return "";
+        }
+
+        public void SetKey(string provider, string plain)
+        {
+            if (string.IsNullOrEmpty(plain)) ApiKeys.Remove(provider);
+            else ApiKeys[provider] = Secrets.Protect(plain);
         }
 
         // Letters (any script), spaces, ( ) ' - only, 2..40 chars. Keeps the prompt clean.
@@ -298,7 +350,15 @@ namespace PolishTool
             StringBuilder sb = new StringBuilder();
             sb.Append("{\r\n");
             sb.Append("  \"hotkey\": ").Append(js.Serialize(Hotkey)).Append(",\r\n");
+            sb.Append("  \"provider\": ").Append(js.Serialize(Provider)).Append(",\r\n");
             sb.Append("  \"model\": ").Append(js.Serialize(Model)).Append(",\r\n");
+            sb.Append("  \"openaiModel\": ").Append(js.Serialize(OpenAIModel)).Append(",\r\n");
+            sb.Append("  \"geminiModel\": ").Append(js.Serialize(GeminiModel)).Append(",\r\n");
+            sb.Append("  \"customModel\": ").Append(js.Serialize(CustomModel)).Append(",\r\n");
+            sb.Append("  \"customBaseUrl\": ").Append(js.Serialize(CustomBaseUrl)).Append(",\r\n");
+            List<string> keys = new List<string>();
+            foreach (KeyValuePair<string, string> k in ApiKeys) keys.Add(js.Serialize(k.Key) + ": " + js.Serialize(k.Value));
+            sb.Append("  \"apiKeys\": {").Append(string.Join(", ", keys.ToArray())).Append("},\r\n");
             sb.Append("  \"effort\": ").Append(js.Serialize(Effort)).Append(",\r\n");
             sb.Append("  \"timeoutSeconds\": ").Append(TimeoutSeconds).Append(",\r\n");
             sb.Append("  \"defaultProfile\": ").Append(js.Serialize(DefaultProfile)).Append(",\r\n");
@@ -334,6 +394,15 @@ namespace PolishTool
             c.CopyWaitMs = Int(d, "copyWaitMs", c.CopyWaitMs);
             c.PasteRestoreDelayMs = Int(d, "pasteRestoreDelayMs", c.PasteRestoreDelayMs);
             c.DefaultProfile = Str(d, "defaultProfile", c.DefaultProfile);
+            c.Provider = Providers.Get(Str(d, "provider", c.Provider)).Id;
+            c.OpenAIModel = Str(d, "openaiModel", c.OpenAIModel);
+            c.GeminiModel = Str(d, "geminiModel", c.GeminiModel);
+            c.CustomModel = Str(d, "customModel", c.CustomModel);
+            c.CustomBaseUrl = Str(d, "customBaseUrl", c.CustomBaseUrl);
+            object keys;
+            if (d.TryGetValue("apiKeys", out keys) && keys is Dictionary<string, object>)
+                foreach (KeyValuePair<string, object> k in (Dictionary<string, object>)keys)
+                    if (k.Value is string && ((string)k.Value).Length > 0) c.ApiKeys[k.Key] = (string)k.Value;
             object byApp;
             if (d.TryGetValue("autoProfileByApp", out byApp) && byApp is bool) c.AutoProfileByApp = (bool)byApp;
             object extra;
@@ -492,7 +561,40 @@ namespace PolishTool
         public int ExitCode = -1;
         public bool TimedOut, Cancelled, Done;
         public long ElapsedMs;
+        public bool IsHttp;          // API provider (OpenAI, Gemini, custom) instead of the Claude CLI
+        public string Provider = "Claude";
         Process proc;
+        System.Net.HttpWebRequest request;
+
+        // API providers: one HTTPS request. ExitCode is 0 on success, the HTTP status on an API error, -1 on a network error.
+        public void StartHttp(HttpSpec spec, int timeoutMs, Action<ClaudeJob> onDone)
+        {
+            IsHttp = true;
+            Provider = spec.Provider.Short;
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                Stopwatch sw = Stopwatch.StartNew();
+                try
+                {
+                    if (!Cancelled)
+                    {
+                        string body;
+                        int status = Http.Send(spec, timeoutMs, delegate(System.Net.HttpWebRequest r) { request = r; if (Cancelled) r.Abort(); }, out body);
+                        if (status >= 200 && status < 300) { Output = Api.ParseText(spec, body); ExitCode = 0; }
+                        else { Error = Api.ErrorMessage(spec, status, body); ExitCode = status; }
+                    }
+                }
+                catch (System.Net.WebException ex)
+                {
+                    if (ex.Status == System.Net.WebExceptionStatus.Timeout) TimedOut = true;
+                    else if (!Cancelled) { Error = Api.NetworkMessage(spec, ex); ExitCode = -1; }
+                }
+                catch (Exception ex) { Error = ex.Message; ExitCode = -1; }
+                ElapsedMs = sw.ElapsedMilliseconds;
+                Done = true;
+                onDone(this);
+            });
+        }
 
         public void Start(ProcessStartInfo psi, string input, int timeoutMs, Action<ClaudeJob> onDone)
         {
@@ -535,6 +637,7 @@ namespace PolishTool
         {
             Cancelled = true;
             KillTree();
+            try { if (request != null) request.Abort(); } catch { }
         }
 
         void KillTree()
@@ -809,15 +912,15 @@ namespace PolishTool
             Profile p = CurrentProfile;
             string prompt = p == null ? null : app.ComposePrompt(p, CurrentLanguage, out err);
             if (p == null) err = "No styles found. Open " + App.AppName + " Settings > Styles > Restore default styles.";
-            ProcessStartInfo psi = prompt == null ? null : app.BuildClaudeStartInfo(prompt, out err);
-            if (psi == null) { tick.Stop(); ShowError(err); return; }
+            if (prompt == null) { tick.Stop(); ShowError(err); return; }
             ClaudeJob j = new ClaudeJob();
             job = j;
-            j.Start(psi, text, Math.Max(5, app.Cfg.TimeoutSeconds) * 1000, delegate(ClaudeJob done)
+            bool started = app.RunJob(j, prompt, text, app.Cfg, delegate(ClaudeJob done)
             {
                 try { if (!IsDisposed) BeginInvoke(new Action(delegate { OnDone(done); })); }
                 catch (InvalidOperationException) { }
-            });
+            }, out err);
+            if (!started) { job = null; tick.Stop(); ShowError(err); }
         }
 
         void OnDone(ClaudeJob j)
@@ -826,26 +929,9 @@ namespace PolishTool
             tick.Stop();
             if (j.Cancelled) return;
             string secs = (j.ElapsedMs / 1000.0).ToString("0.0") + "s";
-            if (j.TimedOut)
-            {
-                Log.Error("Claude timed out after " + secs);
-                ShowError("Claude did not answer within " + app.Cfg.TimeoutSeconds + " seconds.\r\n\r\nTry again, or raise the timeout in " + App.AppName + " Settings > General.");
-                return;
-            }
             string output = App.CleanOutput(j.Output, input);
-            if (j.ExitCode != 0 || output.Length == 0)
-            {
-                string detail = (j.Error + "\n" + j.Output).Trim();
-                if (detail.Length > 600) detail = detail.Substring(0, 600) + "...";
-                Log.Error("Claude failed: exit=" + j.ExitCode + " stderrLen=" + j.Error.Length + " stdoutLen=" + j.Output.Length);
-                string msg = "Claude failed (exit code " + j.ExitCode + ").";
-                if (detail.IndexOf("not logged in", StringComparison.OrdinalIgnoreCase) >= 0 || detail.IndexOf("/login", StringComparison.OrdinalIgnoreCase) >= 0)
-                    msg = "The Claude Code CLI is not signed in.\r\n\r\nOpen " + App.AppName + " Settings > Advanced > Sign in..., then Check.";
-                else if (detail.Length > 0) msg += "\r\n\r\n" + detail.Replace("\r\n", "\n").Replace("\n", "\r\n");
-                else if (output.Length == 0 && j.ExitCode == 0) msg = "Claude returned an empty answer.";
-                ShowError(msg);
-                return;
-            }
+            string failure = App.FailureMessage(j, app.Cfg, output);
+            if (failure != null) { ShowError(failure); return; }
             SetMode("result");
             status.Text = "Done in " + secs + "  -  Ctrl+Enter = Copy, Esc = Close, Ctrl+1..9 = style" + (langBox != null ? ", Alt+1.." + languages.Count + " = language" : "");
             txt.Text = output;
@@ -896,7 +982,7 @@ namespace PolishTool
     // ------------------------------------------------------------------ App
     public class App : ApplicationContext
     {
-        public const string Version = "1.2.0";
+        public const string Version = "1.3.0";
         // Display name. Internal ids (folders, mutex, event, namespace) keep "Polish" so upgrades keep working.
         public const string AppName = "PolisK+";
         public const string SettingsEventName = "Local\\PolishTool.ShowSettings";
@@ -1131,13 +1217,14 @@ namespace PolishTool
                 Cfg = new Config();
                 tray.ShowBalloonTip(5000, AppName, "config.json is invalid - using defaults.\n" + ex.Message, ToolTipIcon.Warning);
             }
-            string err;
-            ResolveClaudePath(out err);
+            string err = null;
+            ProviderInfo p = Providers.Get(Cfg.Provider);
+            if (!p.IsApi) ResolveClaudePath(out err);   // API providers do not need the Claude CLI
             RegisterHotkey(true);
-            string tip = AppName + " - " + Cfg.Hotkey + " (" + Cfg.Model + ")";
+            string tip = AppName + " - " + Cfg.Hotkey + " (" + p.Short + ": " + Cfg.ActiveModel + ")";
             tray.Text = tip.Length > 63 ? tip.Substring(0, 63) : tip;
             if (announce && hotkeyOk)
-                tray.ShowBalloonTip(2500, AppName, "Reloaded. Hotkey " + Cfg.Hotkey + ", model " + Cfg.Model + "." + (err != null ? "\n" + err : ""), ToolTipIcon.Info);
+                tray.ShowBalloonTip(2500, AppName, "Reloaded. Hotkey " + Cfg.Hotkey + ", " + p.Short + " " + Cfg.ActiveModel + "." + (err != null ? "\n" + err : ""), ToolTipIcon.Info);
         }
 
         // Returns null when OK, otherwise a message.
@@ -1257,7 +1344,7 @@ namespace PolishTool
             string found = FindClaude();
             if (found == null)
             {
-                err = "claude.exe not found. Set \"claudePath\" in config.json.";
+                err = "Claude Code (claude.exe) was not found on this computer.\r\n\r\nInstall Claude Code and run Setup again, or pick another AI (OpenAI, Gemini...) in " + AppName + " Settings > AI provider.";
                 return false;
             }
             Cfg.ClaudePath = found;
@@ -1306,6 +1393,52 @@ namespace PolishTool
             return null;
         }
 
+        // Sends the text to the chosen AI: the Claude Code CLI, or an API provider over HTTPS.
+        // Returns false with a readable message when the request cannot even start (no key, no CLI...).
+        internal bool RunJob(ClaudeJob j, string prompt, string input, Config c, Action<ClaudeJob> onDone, out string err)
+        {
+            int timeoutMs = Math.Max(5, c.TimeoutSeconds) * 1000;
+            ProviderInfo p = Providers.Get(c.Provider);
+            j.Provider = p.Short;
+            if (p.IsApi)
+            {
+                HttpSpec spec = Api.BuildPolish(c, prompt, input, out err);
+                if (spec == null) return false;
+                j.StartHttp(spec, timeoutMs, onDone);
+                return true;
+            }
+            ProcessStartInfo psi = BuildClaudeStartInfo(prompt, c, out err);
+            if (psi == null) return false;
+            j.Start(psi, input, timeoutMs, onDone);
+            return true;
+        }
+
+        // null when the job produced usable text; otherwise what to tell the user. Logs the failure without any content.
+        internal static string FailureMessage(ClaudeJob j, Config c, string output)
+        {
+            string secs = (j.ElapsedMs / 1000.0).ToString("0.0") + "s";
+            if (j.TimedOut)
+            {
+                Log.Error(j.Provider + " timed out after " + secs);
+                return j.Provider + " did not answer within " + c.TimeoutSeconds + " seconds.\r\n\r\nTry again, or raise the timeout in " + AppName + " Settings > AI provider.";
+            }
+            if (j.ExitCode == 0 && output.Length > 0) return null;
+            if (j.IsHttp)
+            {
+                Log.Error(j.Provider + " API failed: status=" + j.ExitCode);
+                if (j.Error.Length > 0) return j.Error;
+                return j.Provider + " returned an empty answer.";
+            }
+            string detail = (j.Error + "\n" + j.Output).Trim();
+            if (detail.Length > 600) detail = detail.Substring(0, 600) + "...";
+            Log.Error("Claude failed: exit=" + j.ExitCode + " stderrLen=" + j.Error.Length + " stdoutLen=" + j.Output.Length);
+            if (detail.IndexOf("not logged in", StringComparison.OrdinalIgnoreCase) >= 0 || detail.IndexOf("/login", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "The Claude Code CLI is not signed in.\r\n\r\nOpen " + AppName + " Settings > Advanced > Sign in..., then Check.\r\nNo Claude plan? Pick another AI in Settings > AI provider.";
+            if (detail.Length > 0) return "Claude failed (exit code " + j.ExitCode + ").\r\n\r\n" + detail.Replace("\r\n", "\n").Replace("\n", "\r\n");
+            if (j.ExitCode == 0) return "Claude returned an empty answer.";
+            return "Claude failed (exit code " + j.ExitCode + ").";
+        }
+
         internal ProcessStartInfo BuildClaudeStartInfo(string prompt, out string err)
         {
             return BuildClaudeStartInfo(prompt, Cfg, out err);
@@ -1316,7 +1449,7 @@ namespace PolishTool
             err = null;
             if (!string.IsNullOrEmpty(c.ClaudePath) && !File.Exists(c.ClaudePath) && c == Cfg) c.ClaudePath = "";
             if (c == Cfg) { if (!ResolveClaudePath(out err)) return null; }
-            else if (string.IsNullOrEmpty(c.ClaudePath) || !File.Exists(c.ClaudePath)) { err = "claude.exe not found: " + c.ClaudePath; return null; }
+            else if (string.IsNullOrEmpty(c.ClaudePath) || !File.Exists(c.ClaudePath)) { err = "claude.exe not found" + (string.IsNullOrEmpty(c.ClaudePath) ? "." : ": " + c.ClaudePath) + "\r\nSet it on the Advanced tab, or pick another AI on the AI provider tab."; return null; }
 
             List<string> a = new List<string>();
             string exe = c.ClaudePath;

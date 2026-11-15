@@ -10,7 +10,7 @@ $src     = Join-Path $pkg 'app'
 $dest    = Join-Path $env:LOCALAPPDATA 'Programs\Polish'
 $psExe   = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $AppName = 'PolisK+'
-$refs    = 'System.Windows.Forms', 'System.Drawing', 'System.Web.Extensions', 'UIAutomationClient', 'UIAutomationTypes', 'WindowsBase'
+$refs    = 'System.Windows.Forms', 'System.Drawing', 'System.Web.Extensions', 'System.Security', 'UIAutomationClient', 'UIAutomationTypes', 'WindowsBase'
 
 function Say([string]$msg, [string]$color = 'Gray') { Write-Host $msg -ForegroundColor $color }
 function Ask([string]$question, [bool]$default = $true) {
@@ -38,7 +38,7 @@ if ($PSVersionTable.PSVersion.Major -lt 5) { Fail 'Windows PowerShell 5.1 or new
 if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
     Fail 'PowerShell runs in Constrained Language Mode on this computer (company policy), so PolisK+ cannot run. Ask IT whether PowerShell Add-Type is allowed.'
 }
-$csFiles = 'Polish.cs', 'Profiles.cs', 'SettingsForm.cs'
+$csFiles = 'Polish.cs', 'Profiles.cs', 'Providers.cs', 'SettingsForm.cs'
 try {
     Add-Type -AssemblyName $refs
     $provider = New-Object Microsoft.CSharp.CSharpCodeProvider
@@ -64,6 +64,7 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
 $profDir = Join-Path $dest 'profiles'
 $hadProfiles = Test-Path $profDir
 $cfgPath = Join-Path $dest 'config.json'
+$freshInstall = -not (Test-Path $cfgPath)
 
 # Upgrade from v1.0 (one tone.md + structure.md): turn customised files into a style named "My style".
 $migrated = $false
@@ -127,9 +128,32 @@ Get-ChildItem $dest -Recurse -File | Unblock-File -ErrorAction SilentlyContinue
 if ($kept.Count) { Say "  Kept your existing settings: $($kept -join ', ')" 'Yellow' }
 Say '  Files installed.' 'Green'
 
-# ---------------------------------------------------------------- 3. Claude Code CLI
+# ---------------------------------------------------------------- 3. AI provider (+ Claude Code CLI when Claude is chosen)
 Say ''
-Say '[3/5] Looking for the Claude Code CLI...' 'Cyan'
+Say "[3/5] Which AI should $AppName use?" 'Cyan'
+function Set-ConfigString([string]$name, [string]$value) {
+    $raw = Get-Content $cfgPath -Raw
+    $pair = '"' + $name + '": ' + (ConvertTo-Json $value)
+    $pattern = '"' + $name + '"\s*:\s*"(?:[^"\\]|\\.)*"'
+    if ($raw -match $pattern) { $raw = [regex]::Replace($raw, $pattern, { param($m) $pair }) }
+    else { $raw = [regex]::Replace($raw, '^\s*\{', { param($m) "{`r`n  $pair," }) }
+    [IO.File]::WriteAllText($cfgPath, $raw, (New-Object Text.UTF8Encoding($false)))
+}
+$providerNames = @{ claude = 'Claude'; openai = 'OpenAI GPT'; gemini = 'Google Gemini'; custom = 'another OpenAI-compatible service' }
+$provider = "$((Get-Content $cfgPath -Raw | ConvertFrom-Json).provider)".ToLower()
+if (-not $providerNames.ContainsKey($provider)) { $provider = 'claude' }
+if ($freshInstall -and -not $Quiet) {
+    Say '  1. Claude         - Claude Code CLI with your paid Claude plan (Pro/Max/Team). No API key.'
+    Say '  2. OpenAI GPT     - needs an OpenAI API key'
+    Say '  3. Google Gemini  - needs a Gemini API key (Google AI Studio)'
+    Say '  4. Other          - any OpenAI-compatible service (OpenRouter, Groq, DeepSeek, local Ollama...)'
+    $choice = "$(Read-Host '  Choose 1-4 [1]')".Trim()
+    $provider = switch ($choice) { '2' { 'openai' } '3' { 'gemini' } '4' { 'custom' } default { 'claude' } }
+    Set-ConfigString 'provider' $provider
+}
+$useClaude = $provider -eq 'claude'
+Say "  AI provider: $($providerNames[$provider]). You can change it any time in $AppName Settings > AI provider." 'Green'
+
 function Find-Claude {
     $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
     if ($cfg.claudePath -and (Test-Path $cfg.claudePath)) { return $cfg.claudePath }
@@ -150,29 +174,32 @@ function Invoke-Claude([string]$path, [string[]]$cliArgs) {
     if ($path -like '*.js') { & node.exe $path @cliArgs } else { & $path @cliArgs }
 }
 
-$claude = Find-Claude
-if (-not $claude) {
-    Say '  Claude Code CLI not found.' 'Yellow'
-    Say '  PolisK+ needs it. The official installer is per-user (no admin):'
-    Say '    irm https://claude.ai/install.ps1 | iex'
-    if (Ask '  Install Claude Code now?' (-not $Quiet)) {
-        try { Invoke-RestMethod https://claude.ai/install.ps1 | Invoke-Expression } catch { Say "  Installer error: $($_.Exception.Message)" 'Red' }
-        $claude = Find-Claude
+$claude = $null
+if ($useClaude) {
+    Say '  Looking for the Claude Code CLI...'
+    $claude = Find-Claude
+    if (-not $claude) {
+        Say '  Claude Code CLI not found.' 'Yellow'
+        Say '  Claude needs it. The official installer is per-user (no admin):'
+        Say '    irm https://claude.ai/install.ps1 | iex'
+        if (Ask '  Install Claude Code now?' (-not $Quiet)) {
+            try { Invoke-RestMethod https://claude.ai/install.ps1 | Invoke-Expression } catch { Say "  Installer error: $($_.Exception.Message)" 'Red' }
+            $claude = Find-Claude
+        }
     }
-}
-if ($claude) {
-    Say "  Found: $claude" 'Green'
-    $raw = Get-Content $cfgPath -Raw
-    $json = (ConvertTo-Json $claude)
-    $raw = [regex]::Replace($raw, '"claudePath"\s*:\s*"(?:[^"\\]|\\.)*"', { param($m) '"claudePath": ' + $json })
-    [IO.File]::WriteAllText($cfgPath, $raw, (New-Object Text.UTF8Encoding($false)))
+    if ($claude) {
+        Say "  Found: $claude" 'Green'
+        Set-ConfigString 'claudePath' $claude
+    } else {
+        Say "  Skipped. Install Claude Code later and run Setup again, or pick another AI in $AppName Settings > AI provider." 'Yellow'
+    }
 } else {
-    Say '  Skipped. Install Claude Code later, then run Setup again (or set "claudePath" in config.json).' 'Yellow'
+    Say '  Claude Code CLI: not needed for this provider.'
 }
 
 # ---------------------------------------------------------------- 4. sign-in
 Say ''
-Say '[4/5] Checking Claude sign-in...' 'Cyan'
+Say '[4/5] Checking sign-in...' 'Cyan'
 function Get-LoggedIn {
     try {
         $out = (Invoke-Claude $claude @('auth', 'status')) -join "`n"
@@ -188,7 +215,8 @@ if ($claude) {
             if (Get-LoggedIn) { Say '  Signed in.' 'Green' } else { Say '  Still not signed in. Run Setup again later.' 'Yellow' }
         }
     }
-} else { Say '  Skipped (no CLI).' 'Yellow' }
+} elseif ($useClaude) { Say '  Skipped (no CLI).' 'Yellow' }
+else { Say "  No sign-in needed. You will paste your $($providerNames[$provider]) API key in the Settings window at the end." }
 
 # ---------------------------------------------------------------- 5. shortcuts + start
 Say ''
@@ -238,7 +266,10 @@ if (Test-Path $ie4) { try { Start-Process $ie4 -ArgumentList '-show' -WindowStyl
 
 $logFile = Join-Path $env:LOCALAPPDATA 'Polish\polish.log'
 $logBefore = if (Test-Path $logFile) { (Get-Item $logFile).Length } else { 0 }
-Start-Process $psExe -ArgumentList $launchArgs -WindowStyle Hidden
+# API providers still need a key: open Settings (it shows the AI provider tab while the key is missing).
+$openSettings = (-not $useClaude) -and (-not $Quiet)
+$startArgs = if ($openSettings) { "$launchArgs -Settings" } else { $launchArgs }
+Start-Process $psExe -ArgumentList $startArgs -WindowStyle Hidden
 Start-Sleep -Seconds 5
 $running = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like "*$dest*polish.ps1*" }
 $newLog = ''
@@ -253,6 +284,10 @@ else { Say "  PolisK+ did not stay running. See $logFile" 'Red' }
 $hotkey = (Get-Content $cfgPath -Raw | ConvertFrom-Json).hotkey
 Say ''
 Say '=== Done ===' 'Cyan'
+if (-not $useClaude) {
+    Say "  One step left: in $AppName Settings > AI provider, paste your API key, click Test connection, then Save." 'Yellow'
+    if (-not $openSettings) { Say "  (Open Settings from the Start Menu or by double-clicking the tray icon.)" 'Yellow' }
+}
 Say "  Use: select text in any app, press $hotkey. In the popup, Ctrl+1..9 switches style."
 Say '  Settings and styles (tone + structure per situation): Start Menu / Desktop > PolisK+,'
 Say '  or double-click the tray icon.'

@@ -22,6 +22,15 @@ namespace PolishTool
 
         // General
         TextBox hotkeyBox; Label hotkeyHint; ComboBox modelBox, effortBox, defaultStyleBox; NumericUpDown timeoutBox; CheckBox byAppBox, startupBox;
+        // AI provider tab
+        TabControl tabs; TabPage providerPage;
+        ComboBox providerBox; Label providerInfo, keyStatus, testResult, modelHint; TextBox keyBox, baseUrlBox; LinkLabel keyLink; Button loadModelsBtn, testBtn;
+        Control[] effortRow, keyRow, baseUrlRow;
+        readonly Dictionary<string, string> modelByProvider = new Dictionary<string, string>();
+        readonly Dictionary<string, string> typedKeys = new Dictionary<string, string>();   // plain text, in memory only until Save encrypts them
+        readonly List<string> clearedKeys = new List<string>();
+        string shownProvider;
+        ClaudeJob testJob;
         // Languages (General tab)
         List<string> langs = new List<string>();
         ListBox langList; TextBox langInput; Label langMsg;
@@ -51,10 +60,11 @@ namespace PolishTool
             BackColor = Theme.Surface;
             ForeColor = Theme.Text;
 
-            TabControl tabs = new TabControl();
+            tabs = new TabControl();
             tabs.Dock = DockStyle.Fill;
             tabs.Padding = new Point(14, 5);
             tabs.TabPages.Add(BuildGeneral());
+            tabs.TabPages.Add(BuildProvider());
             tabs.TabPages.Add(BuildStyles());
             tabs.TabPages.Add(BuildAdvanced());
 
@@ -80,6 +90,9 @@ namespace PolishTool
             Theme.Apply(this, save, tryBtn);
 
             LoadAll();
+            // First run, or the chosen AI is not ready (no key, no Claude CLI): open on the AI provider tab and say why.
+            string notReady = ProviderProblem(cfg);
+            if (notReady != null) { tabs.SelectedTab = providerPage; SetTest(notReady, Theme.Error); }
             FormClosing += OnClosingAsk;
             Deactivate += delegate { app.ResumeHotkey(); };
             Activated += delegate { if (hotkeyBox.Focused) app.SuspendHotkey(); };
@@ -176,16 +189,21 @@ namespace PolishTool
             return p;
         }
 
-        static void Row(TableLayoutPanel t, string caption, Control c, string hint)
+        // Returns { caption, control, hint } so a caller can hide the whole row or change its hint.
+        static Control[] Row(TableLayoutPanel t, string caption, Control c, string hint)
         {
             int r = t.RowCount;
             t.RowCount = r + 2;
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            t.Controls.Add(Caption(caption), 0, r);
+            Label cap = Caption(caption), h = Hint(hint ?? "");
+            t.Controls.Add(cap, 0, r);
             t.Controls.Add(c, 1, r);
-            t.Controls.Add(Hint(hint ?? ""), 1, r + 1);
+            t.Controls.Add(h, 1, r + 1);
+            return new Control[] { cap, c, h };
         }
+
+        static void ShowRow(Control[] row, bool visible) { foreach (Control c in row) c.Visible = visible; }
 
         void MarkDirty() { if (!loading) { dirty = true; saveStatus.Text = ""; } }
 
@@ -210,28 +228,6 @@ namespace PolishTool
                 "so there is nothing long to scroll. Switch there with the Language box or Alt+1.." + Config.MaxLanguages + ".\n" +
                 "Type any language, e.g. Japanese, Chinese (Traditional), Portuguese (Brazil), English (British).");
 
-            modelBox = new ComboBox();
-            modelBox.DropDownStyle = ComboBoxStyle.DropDown;
-            modelBox.Items.AddRange(new object[] { "sonnet", "haiku", "opus" });
-            modelBox.Width = 220;
-            modelBox.TextChanged += delegate { MarkDirty(); };
-            Row(t, "Model", modelBox,
-                "sonnet: recommended, best balance of quality and speed (~3-7 s).\n" +
-                "haiku: about the same speed here, but weaker with Vietnamese (it once read \"thu 3\" as \"third time\").\n" +
-                "opus: highest quality, slower, uses more of your Claude plan.");
-
-            effortBox = new ComboBox();
-            effortBox.DropDownStyle = ComboBoxStyle.DropDownList;
-            effortBox.Items.AddRange(new object[] { "(default)", "low", "medium", "high" });
-            effortBox.Width = 220;
-            effortBox.SelectedIndexChanged += delegate { MarkDirty(); };
-            Row(t, "Effort", effortBox, "(default) is recommended. \"low\" can be slightly faster for short texts.");
-
-            timeoutBox = new NumericUpDown();
-            timeoutBox.Minimum = 10; timeoutBox.Maximum = 300; timeoutBox.Width = 80;
-            timeoutBox.ValueChanged += delegate { MarkDirty(); };
-            Row(t, "Timeout (seconds)", timeoutBox, "How long to wait for Claude. 60 is plenty; raise it for very long texts.");
-
             defaultStyleBox = new ComboBox();
             defaultStyleBox.DropDownStyle = ComboBoxStyle.DropDownList;
             defaultStyleBox.Width = 220;
@@ -253,7 +249,8 @@ namespace PolishTool
             Button rec = Btn("Use recommended settings", 200);
             rec.Click += delegate
             {
-                hotkeyBox.Text = "Ctrl+Alt+P"; modelBox.Text = "sonnet"; effortBox.SelectedIndex = 0; timeoutBox.Value = 60;
+                hotkeyBox.Text = "Ctrl+Alt+P"; effortBox.SelectedIndex = 0; timeoutBox.Value = 60;
+                if (!CurrentProvider.IsApi) modelBox.Text = "sonnet";
                 SelectDefaultStyle("Auto"); byAppBox.Checked = true; startupBox.Checked = true;
                 int en = IndexOfLanguage("English");
                 if (en < 0) { langs.Insert(0, "English"); if (langs.Count > Config.MaxLanguages) langs.RemoveAt(langs.Count - 1); }
@@ -261,10 +258,302 @@ namespace PolishTool
                 RefreshLanguages(0);
                 MarkDirty();
             };
-            Row(t, "", rec, "Hotkey Ctrl+Alt+P, English as the default language (your other languages are kept), sonnet, default effort, 60 s, Auto style, pick by app, start with Windows. Click Save to apply.");
+            Row(t, "", rec, "Hotkey Ctrl+Alt+P, English as the default language (your other languages are kept), Auto style, pick by app, start with Windows, 60 s timeout. Your AI provider is kept (with Claude: model sonnet, default effort). Click Save to apply.");
 
             page.Controls.Add(Scroller(t));
             return page;
+        }
+
+        // ------------------------------------------------------------ AI provider tab
+        ProviderInfo CurrentProvider
+        {
+            get { int i = providerBox.SelectedIndex; return Providers.All[i >= 0 && i < Providers.All.Length ? i : 0]; }
+        }
+
+        TabPage BuildProvider()
+        {
+            TabPage page = new TabPage("AI provider");
+            providerPage = page;
+            TableLayoutPanel t = Grid();
+
+            providerBox = new ComboBox();
+            providerBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            providerBox.Width = 400;
+            foreach (ProviderInfo p in Providers.All) providerBox.Items.Add(p.Name);
+            providerBox.SelectedIndexChanged += delegate { if (!loading) { ShowProvider(); MarkDirty(); } };
+            providerInfo = (Label)Row(t, "AI provider", providerBox, "")[2];
+
+            baseUrlBox = new TextBox();
+            baseUrlBox.Width = 400;
+            baseUrlBox.TextChanged += delegate { MarkDirty(); };
+            baseUrlRow = Row(t, "Base URL", baseUrlBox,
+                "The service's address ending in /v1, for example https://openrouter.ai/api/v1, https://api.groq.com/openai/v1, https://api.deepseek.com/v1, " +
+                "or http://localhost:11434/v1 for Ollama on this computer (no key needed).");
+
+            FlowLayoutPanel kp = new FlowLayoutPanel();
+            kp.AutoSize = true;
+            kp.WrapContents = false;
+            kp.Margin = new Padding(0);
+            keyBox = new TextBox();
+            keyBox.Width = 400;
+            keyBox.UseSystemPasswordChar = true;
+            keyBox.Margin = new Padding(3, 5, 3, 3);
+            keyBox.HandleCreated += delegate { SendMessage(keyBox.Handle, 0x1501, (IntPtr)1, "Paste your API key here"); };
+            keyBox.TextChanged += delegate
+            {
+                if (loading) return;
+                if (keyBox.Text.Trim().Length > 0) clearedKeys.Remove(CurrentProvider.Id);
+                UpdateKeyStatus();
+                MarkDirty();
+            };
+            Button removeKey = Btn("Remove key", 100);
+            removeKey.Click += delegate
+            {
+                string id = CurrentProvider.Id;
+                typedKeys.Remove(id);
+                if (!clearedKeys.Contains(id)) clearedKeys.Add(id);
+                bool was = loading; loading = true; keyBox.Text = ""; loading = was;
+                UpdateKeyStatus();
+                MarkDirty();
+            };
+            keyLink = new LinkLabel();
+            keyLink.Text = "Get a key";
+            keyLink.AutoSize = true;
+            keyLink.LinkColor = Theme.Ocean;
+            keyLink.Margin = new Padding(8, 9, 3, 0);
+            keyLink.LinkClicked += delegate
+            {
+                string url = CurrentProvider.KeyUrl;
+                if (url.StartsWith("https://")) { try { Process.Start(url); } catch (Exception ex) { Log.Error("Open link failed: " + ex.Message); } }
+            };
+            kp.Controls.AddRange(new Control[] { keyBox, removeKey, keyLink });
+            keyRow = Row(t, "API key", kp, "");
+            keyStatus = (Label)keyRow[2];
+
+            FlowLayoutPanel mp = new FlowLayoutPanel();
+            mp.AutoSize = true;
+            mp.WrapContents = false;
+            mp.Margin = new Padding(0);
+            modelBox = new ComboBox();
+            modelBox.DropDownStyle = ComboBoxStyle.DropDown;
+            modelBox.Width = 300;
+            modelBox.MaxDropDownItems = 15;
+            modelBox.Margin = new Padding(3, 5, 3, 3);
+            modelBox.TextChanged += delegate { MarkDirty(); };
+            loadModelsBtn = Btn("Load models", 110);
+            loadModelsBtn.Click += delegate { LoadModels(); };
+            mp.Controls.AddRange(new Control[] { modelBox, loadModelsBtn });
+            modelHint = (Label)Row(t, "Model", mp, "")[2];
+
+            effortBox = new ComboBox();
+            effortBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            effortBox.Items.AddRange(new object[] { "(default)", "low", "medium", "high" });
+            effortBox.Width = 220;
+            effortBox.SelectedIndexChanged += delegate { MarkDirty(); };
+            effortRow = Row(t, "Effort", effortBox, "(default) is recommended. \"low\" can be slightly faster for short texts.");
+
+            timeoutBox = new NumericUpDown();
+            timeoutBox.Minimum = 10; timeoutBox.Maximum = 300; timeoutBox.Width = 80;
+            timeoutBox.ValueChanged += delegate { MarkDirty(); };
+            Row(t, "Timeout (seconds)", timeoutBox, "How long to wait for an answer. 60 is plenty; raise it for very long texts.");
+
+            testBtn = Btn("Test connection", 150);
+            testBtn.Click += delegate { RunTest(); };
+            testResult = (Label)Row(t, "", testBtn, TestHint)[2];
+
+            Label privacy = Hint(
+                "Your text is sent to the AI provider you choose here, under your own account and its terms. " + App.AppName + " keeps no copy and logs errors only.\n" +
+                "On a work computer, follow your company's rules about which AI services may receive work text.");
+            privacy.Margin = new Padding(3, 7, 3, 10);
+            Row(t, "Privacy", privacy, "");
+
+            page.Controls.Add(Scroller(t));
+            return page;
+        }
+
+        const string TestHint = "Sends one short request with the settings on this tab (saved or not) and tells you whether it works.";
+        const string KeyNote = "Stored encrypted for your Windows account on this computer. Never written to the log; only sent to the provider above.";
+
+        void SetTest(string text, Color color)
+        {
+            testResult.ForeColor = color;
+            testResult.Text = Regex.Replace(text ?? "", "(\\r?\\n)+", "\n");
+        }
+
+        // Keep what was typed for the provider being left, then show the newly selected one.
+        void StashProvider()
+        {
+            if (shownProvider == null) return;
+            modelByProvider[shownProvider] = modelBox.Text.Trim();
+            string k = keyBox.Text.Trim();
+            if (k.Length > 0) typedKeys[shownProvider] = k; else typedKeys.Remove(shownProvider);
+        }
+
+        void ShowProvider()
+        {
+            bool was = loading;
+            loading = true;
+            StashProvider();
+            ProviderInfo p = CurrentProvider;
+            shownProvider = p.Id;
+            providerInfo.Text = p.Needs;
+            modelBox.Items.Clear();
+            modelBox.Items.AddRange(p.Models);
+            string m;
+            modelBox.Text = modelByProvider.TryGetValue(p.Id, out m) ? m : p.DefaultModel;
+            keyBox.Text = typedKeys.ContainsKey(p.Id) ? typedKeys[p.Id] : "";
+            ShowRow(effortRow, !p.IsApi);
+            ShowRow(keyRow, p.IsApi);
+            ShowRow(baseUrlRow, p.Id == Providers.Custom);
+            loadModelsBtn.Visible = p.IsApi;
+            keyLink.Visible = p.KeyUrl.Length > 0;
+            modelHint.ForeColor = Theme.Muted;
+            if (p.Id == Providers.Claude)
+                modelHint.Text = "sonnet: recommended, best balance of quality and speed (~3-7 s).\n" +
+                    "haiku: about the same speed here, but weaker with Vietnamese (it once read \"thu 3\" as \"third time\").\n" +
+                    "opus: highest quality, slower, uses more of your Claude plan.";
+            else if (p.Id == Providers.OpenAI)
+                modelHint.Text = "Click Load models to list what your key can use, newest first. A small \"mini\" model is fast, cheap and good enough for polishing. You can also type a model name.";
+            else if (p.Id == Providers.Gemini)
+                modelHint.Text = "Click Load models to list what your key can use, newest first. \"flash\" models are fast and cheap; \"pro\" is higher quality and slower. You can also type a model name.";
+            else
+                modelHint.Text = "Type the model name exactly as the service lists it, or click Load models.";
+            UpdateKeyStatus();
+            SetTest(TestHint, Theme.Muted);
+            loading = was;
+        }
+
+        void UpdateKeyStatus()
+        {
+            ProviderInfo p = CurrentProvider;
+            if (!p.IsApi) return;
+            string status;
+            keyStatus.ForeColor = Theme.Muted;
+            if (keyBox.Text.Trim().Length > 0) status = "New key typed. Click Save to store it.";
+            else if (clearedKeys.Contains(p.Id)) status = "The saved key will be removed when you click Save.";
+            else if (cfg.HasSavedKey(p.Id)) { status = "A key is saved (hidden). Paste a new one to replace it."; keyStatus.ForeColor = Theme.Success; }
+            else if (cfg.GetKey(p.Id).Length > 0) status = "Using the key from the " + string.Join(" / ", p.KeyEnv) + " environment variable.";
+            else if (p.Id == Providers.Custom) status = "No key yet. Paste the key from your service (not needed for a local model on localhost).";
+            else status = "No key yet. Click \"Get a key\", create one on the " + p.Short + " site, and paste it here.";
+            keyStatus.Text = status + "\n" + KeyNote;
+        }
+
+        // null when the configured AI can be used; otherwise the reason (no key, no model, no Claude CLI...).
+        string ProviderProblem(Config c)
+        {
+            ProviderInfo p = Providers.Get(c.Provider);
+            string err;
+            if (p.IsApi) return Api.BuildPolish(c, "x", "x", out err) == null ? FirstLine(err) : null;
+            if (string.IsNullOrEmpty(c.ClaudePath) || !File.Exists(c.ClaudePath))
+                return "Claude Code was not found on this computer. Install it and run Setup again, or choose another AI here (OpenAI, Gemini...).";
+            return null;
+        }
+
+        static string FirstLine(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            int i = s.IndexOfAny(new char[] { '\r', '\n' });
+            return i > 0 ? s.Substring(0, i) : s;
+        }
+
+        void LoadModels()
+        {
+            Config c = BuildConfigFromUi();
+            string err;
+            HttpSpec spec = Api.BuildListModels(c, out err);
+            if (spec == null) { modelHint.ForeColor = Theme.Error; modelHint.Text = FirstLine(err); return; }
+            string pid = shownProvider;
+            loadModelsBtn.Enabled = false;
+            modelHint.ForeColor = Theme.Muted;
+            modelHint.Text = "Loading the model list from " + spec.Provider.Short + "...";
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                List<string> ids = null;
+                string msg = null;
+                try
+                {
+                    string body;
+                    int status = Http.Send(spec, 20000, null, out body);
+                    if (status >= 200 && status < 300) ids = Api.ParseModels(spec, body);
+                    else msg = Api.ErrorMessage(spec, status, body);
+                }
+                catch (System.Net.WebException ex) { msg = Api.NetworkMessage(spec, ex); }
+                catch (Exception ex) { msg = "Could not read the model list: " + ex.Message; }
+                try
+                {
+                    if (!IsDisposed) BeginInvoke(new Action(delegate
+                    {
+                        loadModelsBtn.Enabled = true;
+                        if (shownProvider != pid) return;
+                        if (ids == null || ids.Count == 0)
+                        {
+                            modelHint.ForeColor = Theme.Error;
+                            modelHint.Text = Regex.Replace(msg ?? "No chat models found for this key.", "(\\r?\\n)+", "\n");
+                            return;
+                        }
+                        string keep = modelBox.Text.Trim();
+                        modelBox.Items.Clear();
+                        modelBox.Items.AddRange(ids.ToArray());
+                        string picked = "";
+                        if (pid != Providers.Custom && !ids.Contains(keep))
+                        {
+                            picked = SuggestModel(pid, ids);
+                            modelBox.Text = picked;   // marks the form dirty
+                        }
+                        else modelBox.Text = keep;
+                        modelHint.ForeColor = Theme.Success;
+                        modelHint.Text = ids.Count + " models loaded" + (picked.Length > 0 ? ". Picked " + picked + "; open the list to choose another." : ". Open the list to choose.");
+                    }));
+                }
+                catch (InvalidOperationException) { }
+            });
+        }
+
+        // A sensible fast, cheap default from the provider's own list (newest first).
+        static string SuggestModel(string provider, List<string> ids)
+        {
+            foreach (string id in ids)
+            {
+                if (Regex.IsMatch(id, "preview|exp|-\\d{4}-\\d{2}-\\d{2}$")) continue;
+                if (provider == Providers.OpenAI && id.Contains("mini")) return id;
+                if (provider == Providers.Gemini && id.Contains("flash") && !id.Contains("lite")) return id;
+            }
+            return ids[0];
+        }
+
+        void RunTest()
+        {
+            if (testJob != null && !testJob.Done)
+            {
+                testJob.Cancel(); testJob = null;
+                testBtn.Text = "Test connection";
+                SetTest("Cancelled.", Theme.Muted);
+                return;
+            }
+            Config c = BuildConfigFromUi();
+            ProviderInfo p = Providers.Get(c.Provider);
+            ClaudeJob j = new ClaudeJob();
+            testJob = j;
+            string err;
+            bool started = app.RunJob(j, "You are a connection test. Reply with the single word OK.", "ping", c, delegate(ClaudeJob done)
+            {
+                try
+                {
+                    if (!IsDisposed) BeginInvoke(new Action(delegate
+                    {
+                        if (done != testJob) return;
+                        testBtn.Text = "Test connection";
+                        if (done.Cancelled) return;
+                        string fail = App.FailureMessage(done, c, done.Output.Trim());
+                        if (fail != null) SetTest(fail, Theme.Error);
+                        else SetTest("Working: " + p.Short + " (" + c.ActiveModel + ") answered in " + (done.ElapsedMs / 1000.0).ToString("0.0") + " s." + (dirty ? " Click Save to keep these settings." : ""), Theme.Success);
+                    }));
+                }
+                catch (InvalidOperationException) { }
+            }, out err);
+            if (!started) { testJob = null; SetTest(p.IsApi ? FirstLine(err) : err, Theme.Error); return; }
+            testBtn.Text = "Stop";
+            SetTest("Testing " + p.Short + " (" + c.ActiveModel + ")...", Theme.Muted);
         }
 
         // Suggestions while typing (not a list to scroll): any other language name is accepted too.
@@ -538,7 +827,7 @@ namespace PolishTool
         Control BuildTryPanel()
         {
             GroupBox g = new GroupBox();
-            g.Text = "Try this style (uses the unsaved text above and the model on the General tab)";
+            g.Text = "Try this style (uses the unsaved text above and the AI on the AI provider tab)";
             g.Dock = DockStyle.Fill;
             TableLayoutPanel t = new TableLayoutPanel();
             t.Dock = DockStyle.Fill;
@@ -703,14 +992,11 @@ namespace PolishTool
             string err;
             string lang = tryLang.SelectedItem as string ?? c.DefaultLanguage;
             string prompt = app.ComposePrompt(current, lang, out err);
-            ProcessStartInfo psi = prompt == null ? null : app.BuildClaudeStartInfo(prompt, c, out err);
-            if (psi == null) { tryOut.Text = err; return; }
-            tryOut.Text = "";
-            tryInfo.Text = "Polishing with \"" + current.Name + "\" in " + lang + " (" + c.Model + ")...";
-            tryBtn.Text = "Stop";
+            if (prompt == null) { tryOut.Text = err; return; }
+            string ai = Providers.Get(c.Provider).Short + " " + c.ActiveModel;
             ClaudeJob j = new ClaudeJob();
             tryJob = j;
-            j.Start(psi, text, Math.Max(5, c.TimeoutSeconds) * 1000, delegate(ClaudeJob done)
+            bool started = app.RunJob(j, prompt, text, c, delegate(ClaudeJob done)
             {
                 try
                 {
@@ -720,14 +1006,18 @@ namespace PolishTool
                         tryBtn.Text = "Try  >";
                         if (done.Cancelled) return;
                         string output = App.CleanOutput(done.Output, text);
-                        if (done.TimedOut) { tryOut.Text = "Timed out."; tryInfo.Text = ""; return; }
-                        if (done.ExitCode != 0 || output.Length == 0) { tryOut.Text = ("Claude failed (exit " + done.ExitCode + ")\r\n" + done.Error).Trim(); tryInfo.Text = ""; return; }
+                        string fail = App.FailureMessage(done, c, output);
+                        if (fail != null) { tryOut.Text = fail; tryInfo.Text = ""; return; }
                         tryOut.Text = output;
-                        tryInfo.Text = "Done in " + (done.ElapsedMs / 1000.0).ToString("0.0") + " s with " + c.Model + ", " + lang + ".";
+                        tryInfo.Text = "Done in " + (done.ElapsedMs / 1000.0).ToString("0.0") + " s with " + ai + ", " + lang + ".";
                     }));
                 }
                 catch (InvalidOperationException) { }
-            });
+            }, out err);
+            if (!started) { tryJob = null; tryOut.Text = err; return; }
+            tryOut.Text = "";
+            tryInfo.Text = "Polishing with \"" + current.Name + "\" in " + lang + " (" + ai + ")...";
+            tryBtn.Text = "Stop";
         }
 
         // ------------------------------------------------------------ Advanced tab
@@ -762,7 +1052,7 @@ namespace PolishTool
                 Process.Start("powershell.exe", "-NoProfile -NoExit -Command \"& '" + exe.Replace("'", "''") + "' auth login\"");
                 claudeStatus.Text = "Finish the sign-in in the browser / console window, then click Check.";
             };
-            Row(t, "Claude Code CLI", cl, "Leave as found by Setup. If you update or reinstall Claude, " + App.AppName + " finds claude.exe again automatically.");
+            Row(t, "Claude Code CLI", cl, "Only used when the AI provider is Claude. Leave as found by Setup. If you update or reinstall Claude, " + App.AppName + " finds claude.exe again automatically.");
             claudeStatus = Hint("");
             claudeStatus.ForeColor = Theme.Navy;
             t.RowCount++;
@@ -854,7 +1144,12 @@ namespace PolishTool
         {
             loading = true;
             hotkeyBox.Text = cfg.Hotkey;
-            modelBox.Text = cfg.Model;
+            modelByProvider.Clear(); typedKeys.Clear(); clearedKeys.Clear();
+            foreach (ProviderInfo pi in Providers.All) modelByProvider[pi.Id] = cfg.GetModel(pi.Id);
+            baseUrlBox.Text = cfg.CustomBaseUrl;
+            shownProvider = null;
+            providerBox.SelectedIndex = Array.IndexOf(Providers.All, Providers.Get(cfg.Provider));
+            ShowProvider();
             effortBox.SelectedIndex = Math.Max(0, effortBox.Items.IndexOf(string.IsNullOrEmpty(cfg.Effort) ? "(default)" : cfg.Effort));
             timeoutBox.Value = Math.Max(timeoutBox.Minimum, Math.Min(timeoutBox.Maximum, cfg.TimeoutSeconds));
             byAppBox.Checked = cfg.AutoProfileByApp;
@@ -878,7 +1173,17 @@ namespace PolishTool
         {
             Config c = cfg.Clone();
             c.Hotkey = hotkeyBox.Text.Trim();
-            c.Model = modelBox.Text.Trim().Length > 0 ? modelBox.Text.Trim() : "sonnet";
+            StashProvider();
+            c.Provider = CurrentProvider.Id;
+            foreach (ProviderInfo pi in Providers.All)
+            {
+                string m;
+                if (!modelByProvider.TryGetValue(pi.Id, out m)) continue;
+                c.SetModel(pi.Id, m.Length > 0 || pi.Id == Providers.Custom ? m : pi.DefaultModel);
+            }
+            c.CustomBaseUrl = baseUrlBox.Text.Trim();
+            foreach (string id in clearedKeys) c.SetKey(id, "");
+            foreach (KeyValuePair<string, string> k in typedKeys) c.SetKey(k.Key, k.Value);
             c.Effort = effortBox.SelectedIndex <= 0 ? "" : (string)effortBox.SelectedItem;
             c.TimeoutSeconds = (int)timeoutBox.Value;
             c.DefaultProfile = defaultStyleBox.SelectedItem as string ?? "Auto";
@@ -898,6 +1203,11 @@ namespace PolishTool
             if (!App.ParseHotkey(c.Hotkey, out mods, out vk)) { Fail("Set a hotkey on the General tab."); return false; }
             if (!app.CanRegister(c.Hotkey)) { Fail(c.Hotkey + " is used by another app. Pick another hotkey."); return false; }
             if (profiles.Count == 0) { Fail("Keep at least one style."); return false; }
+            if (Providers.Get(c.Provider).IsApi)
+            {
+                string problem = ProviderProblem(c);
+                if (problem != null) { tabs.SelectedTab = providerPage; Fail(problem.Replace(" Open " + App.AppName + " Settings > AI provider.", "")); return false; }
+            }
             List<string> seen = new List<string>();
             foreach (Profile p in profiles)
             {
@@ -922,6 +1232,11 @@ namespace PolishTool
                 if (ProfileStore.Find(profiles, c.DefaultProfile) == null) c.DefaultProfile = profiles[0].Name;
                 if (startupBox.Checked != app.StartWithWindows) app.SetStartWithWindows(startupBox.Checked);
                 app.ApplySettings(c);
+                // Keys are saved (encrypted) now: forget the typed text and show "A key is saved".
+                cfg.ApiKeys = new Dictionary<string, string>(c.ApiKeys);
+                typedKeys.Clear(); clearedKeys.Clear();
+                bool was = loading; loading = true; keyBox.Text = ""; loading = was;
+                UpdateKeyStatus();
             }
             catch (Exception ex)
             {
@@ -964,6 +1279,7 @@ namespace PolishTool
         void OnClosingAsk(object sender, FormClosingEventArgs e)
         {
             if (tryJob != null && !tryJob.Done) tryJob.Cancel();
+            if (testJob != null && !testJob.Done) testJob.Cancel();
             app.ResumeHotkey();
             if (!dirty) return;
             DialogResult r = MessageBox.Show(this, "Save your changes?", App.AppName + " Settings", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);

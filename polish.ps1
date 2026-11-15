@@ -20,9 +20,9 @@ try {
     if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
         throw 'PolisK+ must run in an STA thread. Start it with powershell.exe -STA.'
     }
-    $refs = 'System.Windows.Forms', 'System.Drawing', 'System.Web.Extensions', 'UIAutomationClient', 'UIAutomationTypes', 'WindowsBase'
+    $refs = 'System.Windows.Forms', 'System.Drawing', 'System.Web.Extensions', 'System.Security', 'UIAutomationClient', 'UIAutomationTypes', 'WindowsBase'
     Add-Type -AssemblyName $refs
-    $files = 'Polish.cs', 'Profiles.cs', 'SettingsForm.cs'
+    $files = 'Polish.cs', 'Profiles.cs', 'Providers.cs', 'SettingsForm.cs'
     $sources = [string[]]@($files | ForEach-Object { [IO.File]::ReadAllText((Join-Path $here $_), [Text.Encoding]::UTF8) })
 
     $provider = New-Object Microsoft.CSharp.CSharpCodeProvider

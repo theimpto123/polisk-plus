@@ -6,25 +6,32 @@ Bôi đen một đoạn tiếng Việt (hoặc Việt-Anh lẫn lộn) trong b�
 
 Dùng được cho mọi ngành nghề có viết tiếng Anh trong công việc: văn phòng, dự án, sales, chăm sóc khách hàng, nhân sự, tài chính, kỹ thuật, y tế, giáo dục, nghiên cứu, freelancer.
 
-PolisK+ dùng **Claude Code CLI** đăng nhập bằng gói Claude của chính bạn (Pro/Max/Team). Không cần API key, không cần quyền admin.
+PolisK+ chạy với AI bạn đang có: **Claude** bằng gói Claude của chính bạn (không cần API key), hoặc **OpenAI GPT**, **Google Gemini**, hay dịch vụ khác bằng API key của bạn. Không cần quyền admin.
 
 ## Yêu cầu
 
 1. Windows 10/11 với Windows PowerShell 5.1 (có sẵn trong Windows).
-2. Tài khoản Claude có gói trả phí (Pro, Max, Team hoặc Enterprise).
-3. Claude Code CLI. Nếu máy chưa có, Setup sẽ hỏi để cài giúp (cài theo user, không cần admin).
+2. Một tài khoản AI, chọn một trong các loại sau:
+
+| AI | Cần gì |
+|---|---|
+| **Claude** (mặc định) | Gói Claude trả phí (Pro, Max, Team, Enterprise) và Claude Code CLI. Không cần API key. Setup hỏi để cài CLI và đăng nhập giúp (cài theo user, không cần admin) |
+| **OpenAI GPT** | API key của OpenAI, đã bật thanh toán. Gói ChatGPT Plus không bao gồm quyền dùng API |
+| **Google Gemini** | API key lấy ở Google AI Studio |
+| **Other** | Dịch vụ bất kỳ có API tương thích OpenAI: OpenRouter, Groq, DeepSeek, Mistral, hoặc model chạy ngay trên máy bằng Ollama / LM Studio |
 
 ## Cài đặt
 
-1. Giải nén **toàn bộ** file zip ra một thư mục, ví dụ `Downloads\PolisK+-1.2.0`.
+1. Giải nén **toàn bộ** file zip ra một thư mục, ví dụ `Downloads\PolisK+-1.3.0`.
    - Nếu Windows chặn: chuột phải file zip > Properties > tick **Unblock** > OK, rồi giải nén lại.
 2. Double-click **Setup.cmd**. Setup sẽ:
    1. Kiểm tra máy có chạy được PolisK+ không.
    2. Cài vào `%LOCALAPPDATA%\Programs\Polish`.
-   3. Tìm Claude Code CLI, hỏi cài nếu chưa có.
-   4. Hỏi đăng nhập Claude nếu chưa đăng nhập (mở trình duyệt).
+   3. Hỏi bạn dùng AI nào (chỉ hỏi ở lần cài đầu; gõ số 1-4).
+   4. Nếu chọn Claude: tìm Claude Code CLI, hỏi cài nếu chưa có, hỏi đăng nhập nếu chưa đăng nhập (mở trình duyệt).
    5. Tạo icon **PolisK+** trong Start Menu và (nếu bạn đồng ý) trên Desktop, hỏi có tự chạy khi mở máy không, rồi khởi động PolisK+.
-3. Thấy icon chữ **P** bạc trên nền xanh navy ở khay hệ thống (góc phải dưới, có thể nằm trong mũi tên ^) là xong.
+3. Nếu chọn AI khác Claude: cửa sổ Settings tự mở ở tab **AI provider**. Dán API key, bấm **Load models** và chọn model, bấm **Test connection**, rồi **Save**.
+4. Thấy icon chữ **P** bạc trên nền xanh navy ở khay hệ thống (góc phải dưới, có thể nằm trong mũi tên ^) là xong.
 
 Nâng cấp: chạy Setup.cmd của bản mới.
 
@@ -54,6 +61,18 @@ Một trong các cách sau:
 - Chuột phải icon **P** > **Settings...**
 
 Bấm **Save** (hoặc Ctrl+S) là có hiệu lực ngay, không cần khởi động lại.
+
+## Chọn AI (tab AI provider)
+
+Settings > tab **AI provider**. Đổi lúc nào cũng được, bấm **Save** là dùng ngay.
+
+1. **AI provider**: chọn Claude, OpenAI GPT, Google Gemini hoặc Other.
+2. **API key** (không có với Claude): bấm **Get a key** để mở trang tạo key của nhà cung cấp, tạo key rồi dán vào ô. Key được lưu dạng mã hoá, chỉ tài khoản Windows của bạn trên máy này đọc được. **Remove key** để xoá.
+3. **Model**: bấm **Load models** để lấy danh sách model mà key của bạn dùng được (mới nhất ở trên, tối đa 15 dòng), rồi chọn. Tên model của các hãng đổi thường xuyên nên đừng đoán. Model nhỏ ("mini", "flash") nhanh, rẻ và đủ tốt để chuốt câu.
+4. **Base URL** (chỉ với Other): địa chỉ kết thúc bằng `/v1`, ví dụ `https://openrouter.ai/api/v1`, hoặc `http://localhost:11434/v1` nếu dùng Ollama trên máy (không cần key).
+5. Bấm **Test connection** để thử trước khi Save. Lỗi thường gặp (sai key, sai model, hết quota) được báo bằng chữ dễ hiểu.
+
+Mỗi AI nhớ model và key riêng, nên bạn chuyển qua lại mà không phải nhập lại.
 
 ## Ngôn ngữ đầu ra
 
@@ -112,7 +131,7 @@ Những điều cần biết:
 
 1. Output là chữ thuần (plain text) để dán vào Outlook hoặc SeaTalk, nên đừng yêu cầu in đậm (sẽ hiện nguyên dấu `**`).
 2. Style được ưu tiên hơn phần mặc định trong core rules, trừ 4 luật cứng: chỉ trả về đoạn đã sửa, không trả lời thay câu hỏi, giữ nguyên nghĩa, không bịa thông tin.
-3. Đoạn nằm trong `<!-- ... -->` là ghi chú. PolisK+ tự bỏ đi, không gửi cho Claude.
+3. Đoạn nằm trong `<!-- ... -->` là ghi chú. PolisK+ tự bỏ đi, không gửi cho AI.
 
 ## Gợi ý cài đặt
 
@@ -120,27 +139,30 @@ Những điều cần biết:
 |---|---|---|
 | Hotkey (General) | `Ctrl+Alt+P` | Ctrl+Shift+... hay trùng phím tắt của trình duyệt |
 | Output languages (General) | `English` đứng đầu, chỉ thêm ngôn ngữ bạn thật sự dùng | Danh sách ngắn thì chọn nhanh bằng Alt+1..8 |
-| Model (General) | `sonnet` | Cân bằng nhất: 3-7 giây, dịch tiếng Việt tốt. `haiku` không nhanh hơn bao nhiêu nhưng dịch sai nhiều hơn. `opus` chất lượng cao nhất nhưng chậm hơn và tốn quota hơn |
-| Effort (General) | `(default)` | `low` chỉ nhanh hơn chút với đoạn ngắn |
-| Timeout (General) | `60` | Tăng nếu hay polish đoạn rất dài |
+| Model với Claude (AI provider) | `sonnet` | Cân bằng nhất: 3-7 giây, dịch tiếng Việt tốt. `haiku` không nhanh hơn bao nhiêu nhưng dịch sai nhiều hơn. `opus` chất lượng cao nhất nhưng chậm hơn và tốn quota hơn |
+| Model với OpenAI / Gemini (AI provider) | Model nhỏ trong danh sách **Load models** ("mini", "flash") | Nhanh, rẻ, đủ tốt để chuốt câu |
+| Effort, chỉ với Claude (AI provider) | `(default)` | `low` chỉ nhanh hơn chút với đoạn ngắn |
+| Timeout (AI provider) | `60` | Tăng nếu hay polish đoạn rất dài |
 | Default style (General) | `Auto` | Tự nhận biết loại văn bản |
 | Pick the style automatically (General) | Bật | Outlook ra Email, SeaTalk ra Chat, Word ra Document |
 | Start PolisK+ when I sign in (General) | Bật | Sau khi đăng nhập Windows có thể mất vài phút PolisK+ mới chạy, vì Windows khởi động app lần lượt |
 | Copy wait (Advanced) | `1000` | Tăng lên `2000` nếu hay bị báo "Nothing selected" |
 | Replace delay (Advanced) | `700` | Tăng lên nếu Replace dán ra chữ cũ |
 
-Nút **Use recommended settings** (tab General) đặt lại toàn bộ tab General theo bảng trên.
+Nút **Use recommended settings** (tab General) đặt lại tab General theo bảng trên và giữ nguyên AI bạn đang chọn.
 
-Tốc độ: thường mất 3-7 giây mỗi lần, chủ yếu là thời gian khởi động CLI và đường mạng.
+Tốc độ: với Claude thường mất 3-7 giây mỗi lần, chủ yếu là thời gian khởi động CLI và đường mạng. Các AI dùng API thường nhanh hơn.
 
 ## Bảo mật
 
 1. PolisK+ không lưu đoạn văn của bạn ở đâu cả. File log `%LOCALAPPDATA%\Polish\polish.log` chỉ ghi lỗi (mã lỗi, timeout), không ghi nội dung. PolisK+ chỉ đọc tên app và tiêu đề cửa sổ để chọn style, và cũng không ghi lại thông tin đó.
-2. Mỗi lần gọi Claude chạy ở chế độ chỉ đọc chữ, trả chữ:
+2. Với Claude, mỗi lần gọi chạy ở chế độ chỉ đọc chữ, trả chữ:
    - Không có tool, không có MCP, không đọc settings hay hook của bạn.
    - Không lưu vào lịch sử session của Claude Code.
    - Chạy từ một thư mục rỗng.
-3. Nội dung được gửi tới Claude theo gói và điều khoản tài khoản Claude của bạn. Hãy tuân theo quy định dữ liệu của công ty bạn.
+3. Nội dung chỉ được gửi tới AI bạn chọn, theo tài khoản và điều khoản của bạn với nhà cung cấp đó. Hãy đọc điều khoản dữ liệu của họ: các gói API miễn phí có thể dùng nội dung bạn gửi để cải thiện model.
+4. API key được lưu dạng mã hoá (Windows DPAPI) trong `config.json`: chỉ tài khoản Windows của bạn trên máy này giải mã được, nên chép file sang máy khác thì key không dùng được. Key không bao giờ được ghi vào log, và chỉ được gửi tới đúng nhà cung cấp của nó qua HTTPS.
+5. Hãy tuân theo quy định dữ liệu của công ty bạn về việc dịch vụ AI nào được nhận nội dung công việc.
 
 ## Gỡ cài đặt
 
@@ -151,7 +173,12 @@ Start Menu > PolisK+ > **Uninstall PolisK+** (hoặc chạy `Uninstall.cmd` tron
 | Hiện tượng | Cách xử lý |
 |---|---|
 | "Nothing selected" | Bôi đen lại rồi nhấn hotkey. App chậm thì tăng **Copy wait** (Settings > Advanced) |
-| "Not signed in" | Settings > Advanced > **Sign in...**, đăng nhập trên trình duyệt, rồi bấm **Check** |
+| "Not signed in" (Claude) | Settings > Advanced > **Sign in...**, đăng nhập trên trình duyệt, rồi bấm **Check** |
+| "rejected the API key" | Key sai hoặc đã bị thu hồi. Settings > AI provider > dán lại key, **Test connection**, Save |
+| "model ... was not found" | Tên model không còn dùng được. Settings > AI provider > **Load models**, chọn model khác, Save |
+| "rate limit or quota is reached" | Tài khoản API hết hạn mức hoặc chưa bật thanh toán. Kiểm tra trên trang của nhà cung cấp |
+| "Could not reach ..." | Không kết nối được tới dịch vụ. Kiểm tra mạng; mạng công ty có thể chặn địa chỉ đó |
+| Máy không có Claude | Settings > AI provider > chọn OpenAI, Gemini hoặc Other |
 | Nhấn hotkey không có gì xảy ra | App khác đang chiếm phím tắt. Settings > General > bấm vào ô Hotkey, nhấn tổ hợp mới, Save |
 | Chọn sai style | Đổi trong popup bằng Ctrl+1..9, hoặc sửa ô **Apps** của style (Settings > Styles) |
 | Setup báo "Constrained Language Mode" | Máy bị chính sách công ty chặn PowerShell Add-Type. Cần IT hỗ trợ |
@@ -163,11 +190,13 @@ Start Menu > PolisK+ > **Uninstall PolisK+** (hoặc chạy `Uninstall.cmd` tron
 
 Thư mục nguồn:
 
-1. `Polish.cs` (tray, hotkey, popup, gọi CLI), `Profiles.cs` (đọc/ghi style), `SettingsForm.cs` (cửa sổ Settings). C# 5, `polish.ps1` biên dịch cả ba trong bộ nhớ lúc chạy. Phiên bản nằm ở `App.Version`.
+1. `Polish.cs` (tray, hotkey, popup, gọi CLI), `Profiles.cs` (đọc/ghi style), `Providers.cs` (các AI provider, gọi API qua HTTPS, mã hoá API key), `SettingsForm.cs` (cửa sổ Settings). C# 5, `polish.ps1` biên dịch cả bốn trong bộ nhớ lúc chạy. Phiên bản nằm ở `App.Version`.
 2. `polish.ps1 [-Settings]`: launcher. Nếu PolisK+ đang chạy, `-Settings` chỉ báo cho bản đang chạy mở Settings (qua event `Local\PolishTool.ShowSettings`).
 3. `setup.ps1`, `uninstall.ps1`, `Setup.cmd`, `Uninstall.cmd`: cài đặt.
 4. `prompt\rules.md`, `profiles\*.md`, `config.json`, `polish.ico`: mặc định được đóng gói. `tools\make-icon.ps1` vẽ lại icon.
-5. `build-package.ps1`: tạo `dist\PolisK+-<version>.zip` (xoá `claudePath`, kiểm tra script chỉ chứa ASCII).
+5. `build-package.ps1`: tạo `dist\PolisK+-<version>.zip` (xoá `claudePath` và mọi `apiKeys`, kiểm tra script chỉ chứa ASCII).
+
+Thêm một AI provider mới: khai báo trong `Providers.Build()`. Nếu API của nó tương thích OpenAI thì không cần viết thêm gì; nếu không, thêm một nhánh trong `Api.BuildPolish` và `Api.ParseText`.
 
 Tên hiển thị là `PolisK+` (`App.AppName`). Tên nội bộ vẫn là `Polish` (thư mục cài, thư mục log, mutex, namespace) để nâng cấp từ bản cũ giữ nguyên cài đặt. Setup tự xoá các shortcut tên cũ "Polish".
 

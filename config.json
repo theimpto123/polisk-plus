@@ -1,6 +1,12 @@
 {
   "hotkey": "Ctrl+Alt+P",
+  "provider": "claude",
   "model": "sonnet",
+  "openaiModel": "gpt-5.4-mini",
+  "geminiModel": "gemini-2.5-flash",
+  "customModel": "",
+  "customBaseUrl": "",
+  "apiKeys": {},
   "effort": "",
   "timeoutSeconds": 60,
   "defaultProfile": "Auto",

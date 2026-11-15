@@ -18,6 +18,7 @@ Hướng dẫn tiếng Việt: [README.vi.md](README.vi.md)
 - **Doesn't sound like AI.** The prompt bans the usual giveaways: "delve", "I hope this email finds you well", "seamless", forced groups of three, em dashes. It keeps your numbers, names and dates as written and never adds facts that weren't in your draft.
 - **Other languages when you need them.** English is the default. Add the few languages you actually use (Vietnamese, Japanese, Chinese...) and switch in the popup with Alt+1..8.
 - **Copy or Replace.** Copy the result, or press Replace to paste it straight over your selection. Your clipboard is put back afterwards.
+- **Your choice of AI.** Claude with your Claude plan (no API key), or OpenAI GPT, Google Gemini or any OpenAI-compatible service with your own API key.
 
 ## Example
 
@@ -43,18 +44,26 @@ The day, the date and the numbers are kept, "anh Minh" becomes just "Minh", and 
 ## What you need
 
 - Windows 10 or 11. **No admin rights needed**: everything goes into your own user folder, with no services and nothing system-wide.
-- A paid Claude plan (Pro, Max, Team or Enterprise). PolisK+ runs through the Claude Code command-line tool with your own login. No API key.
-- Claude Code CLI. If it's missing, Setup offers to install it for your user.
+- One AI account, whichever you already have:
+
+| AI | What you need |
+|---|---|
+| **Claude** (default) | A paid Claude plan (Pro, Max, Team or Enterprise) and the Claude Code CLI. No API key. Setup offers to install the CLI and sign you in. |
+| **OpenAI GPT** | An OpenAI API key with billing set up. A ChatGPT Plus subscription on its own doesn't include API access. |
+| **Google Gemini** | A Gemini API key from Google AI Studio. |
+| **Other** | Any service with an OpenAI-compatible API: OpenRouter, Groq, DeepSeek, Mistral, or a model running on your own PC with Ollama or LM Studio. |
 
 ## Install
 
 1. Download `PolisK+-<version>.zip` from [Releases](../../releases).
 2. Extract the whole zip, then double-click **Setup.cmd**.
    If Windows blocks it: right-click the zip > Properties > tick **Unblock** > OK, and extract again.
-3. Sign in to Claude when Setup asks.
+3. Pick your AI when Setup asks.
+   - Claude: sign in when Setup asks.
+   - Anything else: Settings opens on the **AI provider** tab. Paste your API key, click **Load models** and pick one, click **Test connection**, then **Save**.
 4. Look for the navy **P** icon in the system tray (it may be under the ^ arrow). That's it.
 
-To upgrade, run Setup from the new zip. Styles and settings you changed are kept.
+To upgrade, run Setup from the new zip. Styles and settings you changed are kept. You can switch AI at any time in Settings > AI provider.
 
 ## Use
 
@@ -78,26 +87,32 @@ Open Settings from the Start Menu or by double-clicking the tray icon.
 
 - **Styles.** Eight are built in: Auto, Chat, Email, Report, Leadership, Document, External and Light touch. Each one is a short description of the tone and the layout, written in plain words. Change a line like `Write in British English.` or `Never use lists.`, press **Try** to see the effect, then Save. You can also make your own style and tell it which apps to use it in.
 - **Languages.** Type any language name, and keep the list short so picking one stays quick.
-- **Hotkey, model, timeout.** The recommended settings are one click away.
+- **AI provider.** Switch between Claude, OpenAI, Gemini or another service, and pick the model. Model names change often, so **Load models** asks the service which ones your key can use instead of making you guess.
+- **Hotkey and the rest.** The recommended settings are one click away.
+
+![AI provider tab in PolisK+ Settings](docs/images/settings-provider.png)
 
 Styles are plain `.md` files in the `profiles` folder, so you can share a good one with a colleague by sending them the file.
 
 ## Privacy
 
-- Your text goes to Anthropic through your own Claude Code login, just like pasting it into Claude yourself. PolisK+ doesn't save it anywhere. The log file records errors only, never content.
-- Each request runs with no tools, no MCP servers, no project files and no session history. Claude only gets your text and the writing instructions.
+- Your text goes only to the AI you chose, under your own account and its terms, just like pasting it into that service yourself. PolisK+ doesn't save it anywhere. The log file records errors only, never content.
+- With Claude, each request runs with no tools, no MCP servers, no project files and no session history. Claude only gets your text and the writing instructions.
+- API keys are stored encrypted for your Windows account (Windows DPAPI), never in plain text and never in the log. A key is only sent to its own provider, over HTTPS.
+- Read the data terms of the service you pick. Free API tiers in particular may use what you send to improve their models.
 - If your company has rules about what you can send to AI services, follow them.
 
 ## How it works
 
-There's no installer and no .exe. `polish.ps1` compiles a small C# app in memory when it starts, using the .NET Framework that ships with Windows. The app registers the hotkey, sends Ctrl+C to grab your selection, restores your clipboard, and runs `claude -p` with a system prompt built from three parts: the core rules (`prompt/rules.md`), the chosen style and, if it isn't English, the output language.
+There's no installer and no .exe. `polish.ps1` compiles a small C# app in memory when it starts, using the .NET Framework that ships with Windows. The app registers the hotkey, sends Ctrl+C to grab your selection and restores your clipboard. Then it sends your text with a system prompt built from three parts: the core rules (`prompt/rules.md`), the chosen style and, if it isn't English, the output language. With Claude that goes through `claude -p`; with the other providers it's one HTTPS request to their API.
 
 ## Limits
 
-- Each request takes 3 to 7 seconds, mostly Claude Code starting up.
+- With Claude, each request takes 3 to 7 seconds, mostly Claude Code starting up. API providers are usually quicker.
 - Windows only.
 - Some locked-down work laptops block PowerShell from compiling code (Constrained Language Mode). Setup checks for this and tells you.
-- Every request uses a little of your Claude plan's quota.
+- Every request uses a little of your Claude plan's quota, or a small amount of API credit.
+- I use it with Claude every day. The OpenAI, Gemini and "Other" options follow those services' public APIs and are tested against a local stand-in, not yet against every real account type. If one misbehaves for you, please open an issue.
 
 ## Uninstall
 
@@ -107,4 +122,4 @@ Start Menu > PolisK+ > **Uninstall PolisK+**. Your styles and settings are backe
 
 MIT. See [LICENSE](LICENSE).
 
-PolisK+ is a personal project and isn't affiliated with Anthropic. Claude and Claude Code are products of Anthropic.
+PolisK+ is a personal project and isn't affiliated with Anthropic, OpenAI or Google. Their product names belong to them.
