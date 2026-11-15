@@ -1,0 +1,16 @@
+{
+  "hotkey": "Ctrl+Alt+P",
+  "model": "sonnet",
+  "effort": "",
+  "timeoutSeconds": 60,
+  "defaultProfile": "Auto",
+  "autoProfileByApp": true,
+  "languages": ["English", "Vietnamese"],
+  "claudePath": "",
+  "extraArgs": [],
+  "popupWidth": 540,
+  "popupHeight": 280,
+  "fontSize": 10,
+  "copyWaitMs": 1000,
+  "pasteRestoreDelayMs": 700
+}
