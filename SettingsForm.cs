@@ -296,13 +296,27 @@ namespace PolishTool
             kp.Margin = new Padding(0);
             keyBox = new TextBox();
             keyBox.Width = 400;
-            keyBox.UseSystemPasswordChar = true;
+            keyBox.PasswordChar = '*';
             keyBox.Margin = new Padding(3, 5, 3, 3);
             keyBox.HandleCreated += delegate { SendMessage(keyBox.Handle, 0x1501, (IntPtr)1, "Paste your API key here"); };
+            // A saved key shows as "****" (a placeholder, never the key itself). Clicking in selects it so typing replaces it.
+            keyBox.Enter += delegate { if (keyBox.Text == SavedMask) BeginInvoke((MethodInvoker)delegate { keyBox.SelectAll(); }); };
+            keyBox.MouseUp += delegate { if (keyBox.Text == SavedMask && keyBox.SelectionLength == 0) keyBox.SelectAll(); };
+            keyBox.Leave += delegate { if (keyBox.Text.Trim().Length == 0) ShowKeyText(); };
             keyBox.TextChanged += delegate
             {
                 if (loading) return;
-                if (keyBox.Text.Trim().Length > 0) clearedKeys.Remove(CurrentProvider.Id);
+                if (keyBox.Text != SavedMask && keyBox.Text.IndexOf(MaskChar) >= 0)
+                {
+                    // The user edited the placeholder (typed or deleted inside it): keep only what they typed.
+                    loading = true;
+                    keyBox.Text = keyBox.Text.Replace(MaskChar.ToString(), "");
+                    keyBox.SelectionStart = keyBox.Text.Length;
+                    loading = false;
+                }
+                string typed = TypedKey();
+                if (typed.Length > 0) { typedKeys[CurrentProvider.Id] = typed; clearedKeys.Remove(CurrentProvider.Id); }
+                else typedKeys.Remove(CurrentProvider.Id);
                 UpdateKeyStatus();
                 MarkDirty();
             };
@@ -372,7 +386,31 @@ namespace PolishTool
         }
 
         const string TestHint = "Sends one short request with the settings on this tab (saved or not) and tells you whether it works.";
-        const string KeyNote = "Stored encrypted for your Windows account on this computer. Never written to the log; only sent to the provider above.";
+        // Placeholder shown (masked as ****) when a key is saved. Not ASCII, so it can never be mistaken for a real key.
+        const char MaskChar = '●';
+        static readonly string SavedMask = new string(MaskChar, 16);
+
+        // What the user typed in the key box, ignoring the saved-key placeholder.
+        string TypedKey()
+        {
+            string k = keyBox.Text.Trim();
+            return k == SavedMask ? "" : k;
+        }
+
+        // Fill the key box for the current provider: the typed key, "****" for a saved one, or empty.
+        void ShowKeyText()
+        {
+            string id = CurrentProvider.Id;
+            bool was = loading;
+            loading = true;
+            if (typedKeys.ContainsKey(id)) keyBox.Text = typedKeys[id];
+            else if (cfg.HasSavedKey(id) && !clearedKeys.Contains(id)) keyBox.Text = SavedMask;
+            else keyBox.Text = "";
+            loading = was;
+            UpdateKeyStatus();
+        }
+
+        const string KeyNote ="Stored encrypted for your Windows account on this computer. Never written to the log; only sent to the provider above.";
 
         void SetTest(string text, Color color)
         {
@@ -385,7 +423,7 @@ namespace PolishTool
         {
             if (shownProvider == null) return;
             modelByProvider[shownProvider] = modelBox.Text.Trim();
-            string k = keyBox.Text.Trim();
+            string k = TypedKey();
             if (k.Length > 0) typedKeys[shownProvider] = k; else typedKeys.Remove(shownProvider);
         }
 
@@ -401,7 +439,7 @@ namespace PolishTool
             modelBox.Items.AddRange(p.Models);
             string m;
             modelBox.Text = modelByProvider.TryGetValue(p.Id, out m) ? m : p.DefaultModel;
-            keyBox.Text = typedKeys.ContainsKey(p.Id) ? typedKeys[p.Id] : "";
+            ShowKeyText();
             ShowRow(effortRow, !p.IsApi);
             ShowRow(keyRow, p.IsApi);
             ShowRow(baseUrlRow, p.Id == Providers.Custom);
@@ -429,13 +467,19 @@ namespace PolishTool
             if (!p.IsApi) return;
             string status;
             keyStatus.ForeColor = Theme.Muted;
-            if (keyBox.Text.Trim().Length > 0) status = "New key typed. Click Save to store it.";
+            if (TypedKey().Length > 0) status = "New key typed. Click Save to store it.";
             else if (clearedKeys.Contains(p.Id)) status = "The saved key will be removed when you click Save.";
-            else if (cfg.HasSavedKey(p.Id)) { status = "A key is saved (hidden). Paste a new one to replace it."; keyStatus.ForeColor = Theme.Success; }
+            else if (cfg.HasSavedKey(p.Id)) { status = "A key is saved" + KeyTail(cfg.GetKey(p.Id)) + ". Click in the box and paste a new one to replace it."; keyStatus.ForeColor = Theme.Success; }
             else if (cfg.GetKey(p.Id).Length > 0) status = "Using the key from the " + string.Join(" / ", p.KeyEnv) + " environment variable.";
             else if (p.Id == Providers.Custom) status = "No key yet. Paste the key from your service (not needed for a local model on localhost).";
             else status = "No key yet. Click \"Get a key\", create one on the " + p.Short + " site, and paste it here.";
             keyStatus.Text = status + "\n" + KeyNote;
+        }
+
+        // " (ending in ...ab12)" so the user can tell which key is saved; only for keys long enough that 4 characters reveal nothing useful.
+        static string KeyTail(string key)
+        {
+            return key != null && key.Length >= 20 ? " (ending in ..." + key.Substring(key.Length - 4) + ")" : "";
         }
 
         // null when the configured AI can be used; otherwise the reason (no key, no model, no Claude CLI...).
@@ -1235,8 +1279,7 @@ namespace PolishTool
                 // Keys are saved (encrypted) now: forget the typed text and show "A key is saved".
                 cfg.ApiKeys = new Dictionary<string, string>(c.ApiKeys);
                 typedKeys.Clear(); clearedKeys.Clear();
-                bool was = loading; loading = true; keyBox.Text = ""; loading = was;
-                UpdateKeyStatus();
+                ShowKeyText();
             }
             catch (Exception ex)
             {
