@@ -982,7 +982,7 @@ namespace PolishTool
     // ------------------------------------------------------------------ App
     public class App : ApplicationContext
     {
-        public const string Version = "1.3.1";
+        public const string Version = "1.3.2";
         // Display name. Internal ids (folders, mutex, event, namespace) keep "Polish" so upgrades keep working.
         public const string AppName = "PolisK+";
         public const string SettingsEventName = "Local\\PolishTool.ShowSettings";

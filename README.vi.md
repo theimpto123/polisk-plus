@@ -22,16 +22,17 @@ PolisK+ chạy với AI bạn đang có: **Claude** bằng gói Claude của ch�
 
 ## Cài đặt
 
-1. Giải nén **toàn bộ** file zip ra một thư mục, ví dụ `Downloads\PolisK+-1.3.0`.
+1. Vào trang [Releases](https://github.com/theimpto123/polisk-plus/releases/latest), mục **Assets**, tải file `PolisK+-<version>.zip`. (Từ bản 1.3.2, tải bằng nút **Code > Download ZIP** hoặc "Source code (zip)" cũng cài được.)
+2. Chuột phải file zip > **Extract All...** để giải nén **toàn bộ**, rồi mở thư mục vừa giải nén. Đừng chạy Setup.cmd ngay bên trong file zip.
    - Nếu Windows chặn: chuột phải file zip > Properties > tick **Unblock** > OK, rồi giải nén lại.
-2. Double-click **Setup.cmd**. Setup sẽ:
+3. Double-click **Setup.cmd**. Setup sẽ:
    1. Kiểm tra máy có chạy được PolisK+ không.
    2. Cài vào `%LOCALAPPDATA%\Programs\Polish`.
    3. Hỏi bạn dùng AI nào (chỉ hỏi ở lần cài đầu; gõ số 1-4).
    4. Nếu chọn Claude: tìm Claude Code CLI, hỏi cài nếu chưa có, hỏi đăng nhập nếu chưa đăng nhập (mở trình duyệt).
    5. Tạo icon **PolisK+** trong Start Menu và (nếu bạn đồng ý) trên Desktop, hỏi có tự chạy khi mở máy không, rồi khởi động PolisK+.
-3. Nếu chọn AI khác Claude: cửa sổ Settings tự mở ở tab **AI provider**. Dán API key, bấm **Load models** và chọn model, bấm **Test connection**, rồi **Save**.
-4. Thấy icon chữ **P** bạc trên nền xanh navy ở khay hệ thống (góc phải dưới, có thể nằm trong mũi tên ^) là xong.
+4. Nếu chọn AI khác Claude: cửa sổ Settings tự mở ở tab **AI provider**. Dán API key, bấm **Load models** và chọn model, bấm **Test connection**, rồi **Save**.
+5. Thấy icon chữ **P** bạc trên nền xanh navy ở khay hệ thống (góc phải dưới, có thể nằm trong mũi tên ^) là xong.
 
 Nâng cấp: chạy Setup.cmd của bản mới.
 

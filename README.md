@@ -55,8 +55,8 @@ The day, the date and the numbers are kept, "anh Minh" becomes just "Minh", and 
 
 ## Install
 
-1. Download `PolisK+-<version>.zip` from [Releases](../../releases).
-2. Extract the whole zip, then double-click **Setup.cmd**.
+1. Download `PolisK+-<version>.zip` from the **Assets** list of the [latest release](../../releases/latest). (Since 1.3.2 the green **Code > Download ZIP** button works too.)
+2. Right-click the zip > **Extract All...**, open the extracted folder, then double-click **Setup.cmd**. Running Setup.cmd from inside the zip without extracting doesn't work.
    If Windows blocks it: right-click the zip > Properties > tick **Unblock** > OK, and extract again.
 3. Pick your AI when Setup asks.
    - Claude: sign in when Setup asks.

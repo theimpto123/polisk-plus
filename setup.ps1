@@ -28,7 +28,16 @@ Get-ChildItem env: | Where-Object { $_.Name -like 'CLAUDE*' -and $_.Name -notin 
 
 Say ''
 Say "=== $AppName setup ===" 'Cyan'
-if (-not (Test-Path (Join-Path $src 'Polish.cs'))) { Fail "app\Polish.cs not found next to setup.ps1. Extract the whole zip first, then run Setup.cmd." }
+# The release zip keeps the program in app\. GitHub's "Code > Download ZIP" / "Source code (zip)" has the same files
+# at the top level instead: accept that layout too.
+if (-not (Test-Path (Join-Path $src 'Polish.cs')) -and (Test-Path (Join-Path $pkg 'Polish.cs'))) { $src = $pkg }
+$missing = @('Polish.cs', 'Profiles.cs', 'Providers.cs', 'SettingsForm.cs', 'polish.ps1', 'uninstall.ps1', 'polish.ico', 'config.json', 'prompt\rules.md') |
+    Where-Object { -not (Test-Path (Join-Path $src $_)) }
+if ($missing) {
+    Fail ("Some program files are missing next to setup.ps1 ($($missing -join ', ')).`n" +
+        "  Right-click the downloaded zip > Extract All..., open the extracted folder, then double-click Setup.cmd there.`n" +
+        "  (Running Setup.cmd directly from inside the zip does not work.)")
+}
 
 # ---------------------------------------------------------------- 1. environment checks
 Say ''
