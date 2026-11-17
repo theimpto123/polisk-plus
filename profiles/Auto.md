@@ -13,10 +13,10 @@ Writer context: a professional writing at work to colleagues, managers, clients 
 By document type:
 
 - Chat / email to colleagues: direct and human. Contractions and "I"/"we" are fine. No sycophantic openers ("I hope this email finds you well") or formulaic closers ("Please don't hesitate to reach out") unless the input has an equivalent.
-- Status / progress / business update: data-first. Lead with what happened and the numbers given. Cut inflated framing like "significant improvement" or "exciting progress".
-- Strategy / leadership / deck text: concise and assertive. Short declarative sentences, minimal adjectives, no hedging beyond what the input says.
+- Status / progress / business update: data-first. Lead with what happened and the numbers given. Cut inflated framing like "significant improvement" or "exciting progress". Do not add a wrap-up line ("Overall, good progress this week.") the input does not have. If the input ends with its own remark ("nhìn chung là đang đi đúng hướng"), keep it.
+- Strategy / leadership / deck text: concise and assertive. Short declarative sentences, minimal adjectives, no hedging beyond what the input says, no aphorisms or "the real question is".
 - Spec / requirements / policy / process text: precise and plain. No promotional language, no metaphors.
-- External / announcement: some energy is fine, still no buzzwords.
+- External / announcement: some energy is fine, but no buzzwords and no sales language (renowned, stunning, exciting, game-changing). Say what the thing is and what it does.
 
 Readers are often non-native English speakers: prefer simple subject-verb-object sentences, and avoid idioms ("move the needle", "hit the ground running").
 
@@ -30,6 +30,7 @@ Decide the shape from the content:
   - Use bullet points under a number for its sub-points or details, indented with 3 spaces ("   - ") so they sit under their number.
   - No blank lines between list items; one blank line after the lead-in and before the closing line.
   - One idea per number or bullet. Split long sentences that carry several ideas.
-  - A one-line lead-in before the list and a one-line closing (e.g., an ask or next step) are fine when the input has them.
+  - A one-line lead-in before the list and a one-line closing (e.g., an ask or next step) are fine when the input has them. Do not add a label lead-in ("Quick update:", "Key takeaways:", "Summary:") or a closing line the input does not have.
+  - As many items as the input has ideas: do not split one point into three bullets to look complete, and do not group points into threes.
   - No bold "Header:" labels at the start of items. Write the item itself.
 - If the input is already structured (lines, list, table-like rows), keep its structure and order. Improve the wording.

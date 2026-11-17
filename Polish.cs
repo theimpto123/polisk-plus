@@ -946,13 +946,16 @@ namespace PolishTool
 
         void DoCopy()
         {
-            try { ClipboardUtil.SetText(txt.Text, false); Close(); }
+            try { ClipboardUtil.SetText(App.KeepListIndent(txt.Text), false); Close(); }
             catch (Exception ex) { Log.Error("Copy failed: " + ex.GetType().Name); ShowError("Could not write to the clipboard. Try again."); }
         }
 
         void DoReplace()
         {
-            string text = txt.Text;
+            string text = App.KeepListIndent(txt.Text.TrimEnd('\r', '\n'));
+            // The selection ended with a line break (whole paragraph selected): keep it, or the last line
+            // would join the paragraph that follows.
+            if (input != null && input.EndsWith("\n")) text += "\r\n";
             if (!Native.IsWindow(sourceHwnd)) { ShowError("The original window is gone. Use Copy instead."); return; }
             replacing = true;
             Hide();
@@ -982,7 +985,7 @@ namespace PolishTool
     // ------------------------------------------------------------------ App
     public class App : ApplicationContext
     {
-        public const string Version = "1.3.2";
+        public const string Version = "1.3.3";
         // Display name. Internal ids (folders, mutex, event, namespace) keep "Polish" so upgrades keep working.
         public const string AppName = "PolisK+";
         public const string SettingsEventName = "Local\\PolishTool.ShowSettings";
@@ -1518,6 +1521,16 @@ namespace PolishTool
             sb.Append('\\', bs * 2);
             sb.Append('"');
             return sb.ToString();
+        }
+
+        // Sub-points are indented with spaces ("   - detail"). Web editors and chat apps (Gmail, SeaTalk...) often
+        // collapse leading spaces, which pulls the sub-point out from under its number. Non-breaking spaces survive that.
+        static readonly Regex ListIndent = new Regex(@"^[ \t]+(?=(?:[-*•]|\d{1,3}[.)])[ \t])", RegexOptions.Multiline);
+
+        internal static string KeepListIndent(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            return ListIndent.Replace(text, delegate(Match m) { return new string(' ', m.Value.Replace("\t", "    ").Length); });
         }
 
         internal static string CleanOutput(string raw, string input)

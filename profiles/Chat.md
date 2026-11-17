@@ -10,6 +10,10 @@ order: 2
 - Keep a short greeting only if the input has one ("anh ơi" -> "Hi" or "Hi Minh"). Never add a sign-off.
 - Requests become light questions: "Could you check this?" rather than "I would like to kindly request".
 - Keep "anh/chị" before a name only if the input uses it with that name.
+- In a reply, keep the answer or decision where the input puts it, usually first. Do not add a line that restates the other person's message ("Regarding your question about X,").
+- No closing offers ("Let me know if you have any questions", "Happy to help") unless the input has one ("có gì báo em nhé" -> "Let me know if anything comes up").
+- Short replies like "Done.", "Noted, thanks." or "On it." are normal chat; keep them. What to avoid is a dramatic fragment or a punchline added for effect.
+- "Quick question:" or "FYI" only when the input has it (cho em hỏi nhanh, FYI).
 
 # Output structure
 
